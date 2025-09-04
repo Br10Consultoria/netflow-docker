@@ -1,0 +1,62 @@
+# Filebeat Configuration
+# Auto-generated for 1GB RAM, 4 cores
+
+filebeat.modules:
+  - module: netflow
+    log:
+      enabled: true
+      var.netflow_host: 0.0.0.0
+      var.netflow_port: 2055
+      var.internal_networks:
+        - private
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+
+# Output to Elasticsearch with optimized settings
+output.elasticsearch:
+  hosts: ["elasticsearch:9200"]
+  index: "netflow-%{+yyyy.MM.dd}"
+  bulk_max_size: 100
+  timeout: 120s
+  worker: 2
+
+# Setup Kibana
+setup.kibana:
+  host: "kibana:5601"
+
+# Template settings optimized for system resources
+setup.template.settings:
+  index.number_of_shards: 1
+  index.number_of_replicas: 0
+  index.refresh_interval: "30s"
+  index.codec: "best_compression"
+
+# ILM Policy for automatic cleanup
+setup.ilm.enabled: true
+setup.ilm.rollover_alias: "netflow"
+setup.ilm.pattern: "netflow-*"
+setup.ilm.policy: "netflow-policy"
+
+# Logging configuration
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /usr/share/filebeat/logs
+  name: filebeat
+  keepfiles: 7
+  permissions: 0644
+
+# Performance processors
+processors:
+  - add_host_metadata:
+      when.not.contains.tags: forwarded
+  - drop_fields:
+      fields: ["agent", "ecs", "host.architecture", "host.os.family"]
+      ignore_missing: true
+
+# Queue settings based on available memory
+queue.mem:
+  events: 1000
+  flush.min_events: 100
+  flush.timeout: 5s

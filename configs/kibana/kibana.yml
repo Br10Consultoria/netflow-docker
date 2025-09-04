@@ -1,0 +1,20 @@
+# Kibana Configuration
+# Auto-generated for 1GB RAM system
+
+server.host: 0.0.0.0
+server.port: 5601
+server.name: "netflow-kibana"
+
+elasticsearch.hosts: ["http://elasticsearch:9200"]
+
+# Security
+xpack.security.enabled: false
+xpack.encryptedSavedObjects.encryptionKey: "netflow_elk_stack_1757022605_key_32_chars"
+
+# Performance tuning based on available memory
+server.maxPayload: 1048576
+elasticsearch.requestTimeout: 60000
+elasticsearch.shardTimeout: 60000
+
+# Logging
+logging.quiet: true

@@ -1,0 +1,20 @@
+{
+  "index_patterns": ["netflow-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "codec": "best_compression",
+      "refresh_interval": "30s",
+      "translog": {
+        "sync_interval": "30s",
+        "durability": "async"
+      }
+    }
+  },
+  "priority": 100,
+  "version": 1,
+  "_meta": {
+    "description": "NetFlow index template - optimized for HDD storage and low-resource systems"
+  }
+}

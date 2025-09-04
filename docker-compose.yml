@@ -1,0 +1,225 @@
+# Docker Compose file for NetFlow ELK Stack
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION}
+    container_name: netflow-elasticsearch
+    environment:
+      - node.name=netflow-node-01
+      - cluster.name=netflow-cluster
+      - discovery.type=single-node
+      - bootstrap.memory_lock=false
+      - "ES_JAVA_OPTS=-Xms${ES_HEAP_SIZE} -Xmx${ES_HEAP_SIZE}"
+      - processors=${ES_PROCESSORS}
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - xpack.ml.enabled=false
+      - xpack.monitoring.enabled=false
+      - xpack.watcher.enabled=false
+      - action.destructive_requires_name=true
+      - cluster.routing.allocation.disk.threshold_enabled=true
+      - cluster.routing.allocation.disk.watermark.low=85%
+      - cluster.routing.allocation.disk.watermark.high=90%
+      - cluster.routing.allocation.disk.watermark.flood_stage=95%
+      # Dynamic memory settings based on detected RAM
+      - indices.memory.index_buffer_size=${INDEX_BUFFER_SIZE:-10%}
+      - indices.fielddata.cache.size=${FIELDDATA_CACHE_SIZE:-20%}
+      - indices.queries.cache.size=${QUERIES_CACHE_SIZE:-10%}
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./data/elasticsearch:/usr/share/elasticsearch/data
+      - ./configs/elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+    ports:
+      - "${ELASTICSEARCH_PORT}:9200"
+    networks:
+      - netflow-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: ${ES_MEMORY_LIMIT}
+        reservations:
+          memory: ${ES_MEMORY_RESERVATION}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health?timeout=10s || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+    labels:
+      - "netflow.component=elasticsearch"
+      - "netflow.system.ram=${TOTAL_RAM_GB}GB"
+      - "netflow.system.cpu=${CPU_CORES}cores"
+      - "netflow.system.disk=${DISK_TYPE}"
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${ELASTIC_VERSION}
+    container_name: netflow-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - SERVER_NAME=netflow-kibana
+      - SERVER_HOST=0.0.0.0
+      - NODE_OPTIONS=${KIBANA_NODE_OPTIONS}
+      - LOGGING_QUIET=${KIBANA_LOGGING_QUIET:-false}
+      - XPACK_MONITORING_ENABLED=false
+      - XPACK_ML_ENABLED=false
+      - XPACK_SECURITY_ENABLED=false
+    volumes:
+      - ./data/kibana:/usr/share/kibana/data
+      - ./configs/kibana/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
+    ports:
+      - "${KIBANA_PORT}:5601"
+    networks:
+      - netflow-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: ${KIBANA_MEMORY_LIMIT}
+        reservations:
+          memory: ${KIBANA_MEMORY_RESERVATION}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 90s
+    labels:
+      - "netflow.component=kibana"
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:${ELASTIC_VERSION}
+    container_name: netflow-filebeat
+    user: root
+    command: filebeat -e -strict.perms=false
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - KIBANA_HOST=http://kibana:5601
+      - GOMAXPROCS=${GOMAXPROCS}
+      - BULK_MAX_SIZE=${BULK_SIZE}
+      - QUEUE_SIZE=${NETFLOW_QUEUE_SIZE}
+    volumes:
+      - ./configs/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ./configs/filebeat/modules.d:/usr/share/filebeat/modules.d:ro
+      - ./data/filebeat:/usr/share/filebeat/data
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "${NETFLOW_PORT}:2055/udp"
+    networks:
+      - netflow-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      kibana:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: ${FILEBEAT_MEMORY_LIMIT}
+        reservations:
+          memory: ${FILEBEAT_MEMORY_RESERVATION}
+    healthcheck:
+      test: ["CMD-SHELL", "filebeat test output || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "netflow.component=filebeat"
+
+  # Monitoring service adapted to system resources
+  monitor:
+    image: alpine:latest
+    container_name: netflow-monitor
+    volumes:
+      - ./scripts:/scripts:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro
+    networks:
+      - netflow-network
+    environment:
+      - TOTAL_RAM_GB=${TOTAL_RAM_GB}
+      - CPU_CORES=${CPU_CORES}
+      - DISK_TYPE=${DISK_TYPE}
+      - ES_HEAP_SIZE=${ES_HEAP_SIZE}
+    command: |
+      sh -c '
+        apk add --no-cache curl procps sysstat bc &&
+        echo "Monitor started for ${TOTAL_RAM_GB}GB RAM, ${CPU_CORES} CPU cores system" &&
+        while true; do
+          /scripts/netflow-monitor.sh > /tmp/monitor-$(date +%H%M).log 2>&1
+          sleep 300
+        done
+      '
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: ${MONITOR_MEMORY_LIMIT:-100m}
+        reservations:
+          memory: ${MONITOR_MEMORY_RESERVATION:-50m}
+    labels:
+      - "netflow.component=monitor"
+
+  # Auto-cleanup service based on system resources
+  cleanup:
+    image: alpine:latest
+    container_name: netflow-cleanup
+    volumes:
+      - ./scripts:/scripts:ro
+    networks:
+      - netflow-network
+    environment:
+      - RETENTION_DAYS=${RETENTION_DAYS}
+      - DISK_THRESHOLD_WARNING=${DISK_THRESHOLD_WARNING}
+      - DISK_THRESHOLD_CRITICAL=${DISK_THRESHOLD_CRITICAL}
+      - ELASTICSEARCH_HOST=elasticsearch:9200
+    command: |
+      sh -c '
+        apk add --no-cache curl &&
+        echo "Cleanup service started - retention: ${RETENTION_DAYS} days" &&
+        while true; do
+          sleep 3600
+          /scripts/cleanup-data.sh
+        done
+      '
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 50m
+        reservations:
+          memory: 25m
+    labels:
+      - "netflow.component=cleanup"
+
+networks:
+  netflow-network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1500
+    labels:
+      - "netflow.network=main"
+
+volumes:
+  elasticsearch-data:
+    driver: local
+    labels:
+      - "netflow.volume=elasticsearch"
+  kibana-data:
+    driver: local
+    labels:
+      - "netflow.volume=kibana"
+  filebeat-data:
+    driver: local
+    labels:
+      - "netflow.volume=filebeat"

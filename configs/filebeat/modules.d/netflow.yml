@@ -1,0 +1,11 @@
+- module: netflow
+  log:
+    enabled: true
+    var:
+      netflow_host: 0.0.0.0
+      netflow_port: 2055
+      internal_networks:
+        - private
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16

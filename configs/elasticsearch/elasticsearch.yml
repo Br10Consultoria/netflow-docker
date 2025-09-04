@@ -1,0 +1,50 @@
+# Elasticsearch Configuration
+# Auto-generated for 1GB RAM, 4 cores, hdd storage
+
+# Cluster settings
+cluster.name: "netflow-cluster"
+node.name: "netflow-node-01"
+network.host: 0.0.0.0
+http.port: 9200
+discovery.type: single-node
+
+# Security (disabled for simplicity)
+xpack.security.enabled: false
+xpack.security.enrollment.enabled: false
+xpack.ml.enabled: false
+xpack.monitoring.enabled: false
+xpack.watcher.enabled: false
+
+# Memory locking disabled for compatibility
+bootstrap.memory_lock: false
+
+# Performance tuning based on system resources (1GB RAM system)
+indices.memory.index_buffer_size: 10%
+indices.memory.min_index_buffer_size: 48mb
+indices.fielddata.cache.size: 20%
+indices.queries.cache.size: 10%
+
+# Thread pools based on CPU cores (4 cores)
+thread_pool.write.queue_size: 800
+thread_pool.search.queue_size: 4000
+thread_pool.get.queue_size: 4000
+
+# Index settings optimized for NetFlow
+action.auto_create_index: true
+action.destructive_requires_name: true
+
+# Disk allocation thresholds
+cluster.routing.allocation.disk.threshold_enabled: true
+cluster.routing.allocation.disk.watermark.low: 85%
+cluster.routing.allocation.disk.watermark.high: 90%
+cluster.routing.allocation.disk.watermark.flood_stage: 95%
+
+# Recovery settings based on disk type (HDD)
+cluster.routing.allocation.node_concurrent_recoveries: 1
+indices.recovery.max_bytes_per_sec: 20mb
+
+# Refresh interval optimized for storage type (HDD)
+index.refresh_interval: 30s
+
+# Processor configuration (2 processors for 4-core system)
+processors: 2
